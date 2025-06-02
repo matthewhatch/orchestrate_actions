@@ -35,10 +35,13 @@ jobs:
 
         with open("manifest.json") as f:
             manifest = json.load(f)
+        
+        print("Manifest loaded successfully.")
 
         for customer in manifest["customers"]:
             name = customer["name"]
             version = customer["version"]
+            print(f"Processing customer: {name}, version: {version}")
             source_path = f"customers/{name}.json"
             s3_path = f"s3://kagr-challenge/prod/{name}/v_{version}.json"
 
