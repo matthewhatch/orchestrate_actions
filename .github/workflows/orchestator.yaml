@@ -39,7 +39,7 @@ jobs:
         for customer in manifest["customers"]:
             name = customer["name"]
             version = customer["version"]
-            source_path = f"customers/{name}/"
+            source_path = f"customers/{name}.json"
             s3_path = f"s3://kagr-challenge/prod/{name}/v_{version}.json"
 
             if os.path.isdir(source_path):
