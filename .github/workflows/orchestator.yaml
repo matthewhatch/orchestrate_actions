@@ -45,7 +45,7 @@ jobs:
             source_path = f"customers/{name}.json"
             s3_path = f"s3://kagr-challenge/prod/{name}/v_{version}.json"
 
-            if os.path.isdir(source_path):
+            if os.path.isfile(source_path):
                 print(f"Uploading {source_path} to {s3_path}")
                 subprocess.run([
                     "aws", "s3", "cp", source_path, s3_path, "--recursive"
