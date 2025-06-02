@@ -48,7 +48,7 @@ jobs:
             if os.path.isfile(source_path):
                 print(f"Uploading {source_path} to {s3_path}")
                 subprocess.run([
-                    "aws", "s3", "cp", source_path, s3_path, "--recursive"
+                    "aws", "s3", "cp", source_path, s3_path
                 ], check=True)
             else:
                 print(f"WARNING: Directory {source_path} does not exist, skipping.")
