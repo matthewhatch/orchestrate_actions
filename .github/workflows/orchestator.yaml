@@ -33,7 +33,7 @@ jobs:
         import subprocess
         import os
 
-        with open("manifest.json") as f:
+        with open("deploy-manifest.json") as f:
             manifest = json.load(f)
         
         print("Manifest loaded successfully.")
