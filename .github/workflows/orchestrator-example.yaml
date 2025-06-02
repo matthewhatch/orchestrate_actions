@@ -1,0 +1,108 @@
+name: Orchestrate Versioned Multi-Repo Deployment with Tag Verification and Rollback Resolution
+
+on:
+  workflow_dispatch:
+
+jobs:
+  read-manifest:
+    runs-on: ubuntu-latest
+    outputs:
+      version_snowflake: ${{ steps.set-versions.outputs.version_snowflake }}
+      rollback_snowflake: ${{ steps.set-versions.outputs.rollback_snowflake }}
+      version_prefect: ${{ steps.set-versions.outputs.version_prefect }}
+      rollback_prefect: ${{ steps.set-versions.outputs.rollback_prefect }}
+    steps:
+      - name: Checkout orchestrator repo
+        uses: actions/checkout@v3
+
+      - name: Install jq
+        run: sudo apt-get install jq -y
+
+      - name: Parse manifest and verify/resolve tags
+        id: set-versions
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          get_latest_tag_before() {
+            repo=$1
+            current_tag=$2
+            # Get all tags sorted by creation time descending
+            tags=$(gh api repos/kagr/$repo/tags | jq -r '.[].name')
+            fallback_tag=$(echo "$tags" | grep -v "$current_tag" | head -n 1)
+            echo "$fallback_tag"
+          }
+
+          manifest=$(cat deploy-manifest.json)
+
+          # === snowflake ===
+          version_snowflake=$(echo "$manifest" | jq -r '."snowflake".version')
+          rollback_snowflake=$(echo "$manifest" | jq -r '."snowflake".previous // empty')
+          if [ -z "$rollback_snowflake" ]; then
+            rollback_snowflake=$(get_latest_tag_before "snowflake" "$version_snowflake")
+          fi
+
+          # === prefect ===
+          version_prefect=$(echo "$manifest" | jq -r '."prefect".version')
+          rollback_prefect=$(echo "$manifest" | jq -r '."prefect".previous // empty')
+          if [ -z "$rollback_prefect" ]; then
+            rollback_prefect=$(get_latest_tag_before "prefect" "$version_prefect")
+          fi
+
+          # === Validate tags exist ===
+          for repo in snowflake prefect; do
+            for tag in ${!version_${repo//-/_}} ${!rollback_${repo//-/_}}; do
+              if ! gh api repos/kagr/$repo/git/refs/tags/$tag &> /dev/null; then
+                echo "❌ Tag $tag does not exist in $repo"; exit 1
+              fi
+            done
+          done
+
+          echo "version_snowflake=$version_snowflake" >> $GITHUB_OUTPUT
+          echo "rollback_snowflake=$rollback_snowflake" >> $GITHUB_OUTPUT
+          echo "version_prefect=$version_prefect" >> $GITHUB_OUTPUT
+          echo "rollback_prefect=$rollback_prefect" >> $GITHUB_OUTPUT
+
+  deploy-snowflake:
+    needs: read-manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger deployment for snowflake
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/kagr/snowflake/actions/workflows/deploy.yml/dispatches \
+            -d "{\"ref\":\"${{ needs.read-manifest.outputs.version_snowflake }}\"}"
+
+  deploy-prefect:
+    needs: [read-manifest, deploy-snowflake]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger deployment for prefect
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/kagr/prefect/actions/workflows/deploy.yml/dispatches \
+            -d "{\"ref\":\"${{ needs.read-manifest.outputs.version_prefect }}\"}"
+
+  rollback:
+    if: failure()
+    needs: [read-manifest, deploy-prefect]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rollback snowflake
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/kagr/snowflake/actions/workflows/deploy.yml/dispatches \
+            -d "{\"ref\":\"${{ needs.read-manifest.outputs.rollback_snowflake }}\"}"
+
+      - name: Rollback prefect
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/kagr/prefect/actions/workflows/deploy.yml/dispatches \
+            -d "{\"ref\":\"${{ needs.read-manifest.outputs.rollback_prefect }}\"}"
